@@ -4,34 +4,23 @@ import time
 from collections import Counter
 
 # ==========================================================
-# High Performance Integer Factorizer (Python)
-# Combines:
+# 大整数因子分解
+# 综合算法:
 #   1. Trial Division
 #   2. Miller-Rabin primality test
 #   3. Pollard p-1
 #   4. Pollard Rho
-# Recursive full factorization
+# 递归调用,完整分解所有因子
 # ==========================================================
 
 
-# ----------------------------------------------------------
 # gcd
-# ----------------------------------------------------------
 def gcd(a: int, b: int) -> int:
     while b:
         a, b = b, a % b
     return abs(a)
-# Fast modular multiply (Python big int already safe)
-# ----------------------------------------------------------
-def mul_mod(a, b, mod):
-    return (a * b) % mod
 
-
-# ----------------------------------------------------------
-# Miller Rabin primality test
-# Deterministic for 64-bit
-# Good probabilistic for larger integers
-# ----------------------------------------------------------
+# Miller-Rabin
 def is_prime(n: int, rounds=10) -> bool:
 
     if n < 2:
@@ -47,15 +36,13 @@ def is_prime(n: int, rounds=10) -> bool:
             return True
         if n % p == 0:
             return False
-
-    # write n-1 = d * 2^s
     d = n - 1
     s = 0
     while d % 2 == 0:
         s += 1
         d //= 2
 
-    # deterministic bases for 64-bit
+    # n长度小于64bit时使用小素数测试
     if n.bit_length() <= 64:
         test_bases = [2, 3, 5, 7, 11, 13, 17]
     else:
@@ -86,9 +73,7 @@ def is_prime(n: int, rounds=10) -> bool:
     return True
 
 
-# ----------------------------------------------------------
-# Prime sieve
-# ----------------------------------------------------------
+# 素数筛,返回指定整数范围内的所有素数
 def prime_sieve(limit=100000):
     sieve = bytearray(b"\x01") * (limit + 1)
     sieve[0:2] = b"\x00\x00"
@@ -104,12 +89,11 @@ def prime_sieve(limit=100000):
     return [i for i in range(limit + 1) if sieve[i]]
 
 
+# 10w内所有素数
 SMALL_PRIMES = prime_sieve(100000)
 
 
-# ----------------------------------------------------------
-# Trial division
-# ----------------------------------------------------------
+# 试除法分解较小因子
 def trial_division(n: int, factors: list) -> int:
 
     for p in SMALL_PRIMES:
@@ -123,9 +107,7 @@ def trial_division(n: int, factors: list) -> int:
     return n
 
 
-# ----------------------------------------------------------
 # Pollard p-1
-# ----------------------------------------------------------
 def pollard_p1(n: int, B1=10000) -> int:
 
     if n % 2 == 0:
@@ -151,9 +133,8 @@ def pollard_p1(n: int, B1=10000) -> int:
     return 1
 
 
-# ----------------------------------------------------------
-# Pollard Rho
-# ----------------------------------------------------------
+# Pollard rho
+# 这里采用的F是多项式函数F(x) = x^2 +c
 def pollard_rho(n: int) -> int:
 
     if n % 2 == 0:
@@ -170,9 +151,9 @@ def pollard_rho(n: int) -> int:
         d = 1
 
         while d == 1:
-            x = (mul_mod(x, x, n) + c) % n
-            y = (mul_mod(y, y, n) + c) % n
-            y = (mul_mod(y, y, n) + c) % n
+            x = (x*x + c) % n
+            y = (y*y + c) % n
+            y = (y*y + c) % n
 
             d = gcd(abs(x - y), n)
 
@@ -180,9 +161,52 @@ def pollard_rho(n: int) -> int:
             return d
 
 
-# ----------------------------------------------------------
-# Core recursive factorization
-# ----------------------------------------------------------
+
+
+def pollard_rho(n: int) -> int:
+    if n % 2 == 0: return 2
+    if is_prime(n): return n
+
+    step_size = 127 # 批量 GCD 的步数
+    
+    while True:
+        c = random.randrange(1, n)
+        x = random.randrange(2, n)
+        y = x
+        r = 1
+        q = 1
+        d = 1
+        
+        while d == 1:
+            x = y
+            # r为Brent算法的增长序列指数
+            for _ in range(r):
+                y = (y * y + c) % n
+            
+            k = 0
+            while k < r and d == 1:
+                ys = y
+                # 批量乘积阶段
+                for _ in range(min(step_size, r - k)):
+                    y = (y * y + c) % n
+                    q = (q * abs(x - y)) % n
+                
+                d = gcd(q, n)
+                k += step_size
+            r *= 2
+        
+        # 如果 GCD 结果是 n，说明需要回退找具体一因子
+        if d == n:
+            while True:
+                ys = (ys * ys + c) % n
+                d = gcd(abs(x - ys), n)
+                if d > 1:
+                    break
+        
+        if d < n:
+            return d
+
+# 递归调用因子分解
 def factor_recursive(n: int, factors: list):
 
     if n == 1:
@@ -192,10 +216,10 @@ def factor_recursive(n: int, factors: list):
         factors.append(n)
         return
 
-    # first try p-1
+    # Pollard p-1
     d = pollard_p1(n)
 
-    # fallback to rho
+    # 失败来到Pollard rho
     if d == 1:
         d = pollard_rho(n)
 
@@ -203,16 +227,13 @@ def factor_recursive(n: int, factors: list):
     factor_recursive(n // d, factors)
 
 
-# ----------------------------------------------------------
-# Full factorization
-# ----------------------------------------------------------
+# 完整分解
 def factor(n: int):
 
     start = time.perf_counter()
-
     factors = []
 
-    # trial division first
+    # 首先使用试除法
     n = trial_division(n, factors)
 
     if n > 1:
@@ -221,13 +242,10 @@ def factor(n: int):
     factors.sort()
 
     elapsed = time.perf_counter() - start
-
     return factors, elapsed
 
 
-# ----------------------------------------------------------
-# Pretty print
-# ----------------------------------------------------------
+# 输出结果
 def print_factorization(n: int):
 
     factors, t = factor(n)
@@ -238,9 +256,13 @@ def print_factorization(n: int):
     for p in sorted(cnt):
         e = cnt[p]
         if e == 1:
-            parts.append(str(p))
+            parts.append(f"{p:0x}")
         else:
             parts.append(f"{p}^{e}")
+    
+    # 转为16进制
+    for i in range(len(factors)):
+        factors[i] = f"{factors[i]:0x}"
 
     print("=" * 60)
     print("n =", n)
@@ -252,9 +274,7 @@ def print_factorization(n: int):
     print("=" * 60)
 
 
-# ----------------------------------------------------------
-# Demo
-# ----------------------------------------------------------
+
 if __name__ == "__main__":
 
     tests = [
